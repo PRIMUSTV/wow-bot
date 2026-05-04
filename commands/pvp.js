@@ -33,7 +33,6 @@ module.exports = {
     try {
       const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
 
-      // Récupère le token Blizzard
       const credentials = Buffer.from(
         `${process.env.BLIZZARD_CLIENT_ID}:${process.env.BLIZZARD_CLIENT_SECRET}`
       ).toString('base64');
@@ -49,59 +48,53 @@ module.exports = {
       const tokenData = await tokenRes.json();
       const token = tokenData.access_token;
 
-      const realmSlug = realm.toLowerCase().replace(/\s+/g, '-');
-      const charName = name.toLowerCase()
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '');
+      const realmSlug = realm.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '-');
+      const charName  = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-      // Récupère les stats PvP
-      const pvpRes = await fetch(
-        `https://${region}.api.blizzard.com/profile/wow/character/${realmSlug}/${charName}/pvp-summary` +
-        `?namespace=profile-${region}&locale=fr_FR&access_token=${token}`
-      );
-      const pvpText = await pvpRes.text();
-      const pvpData = pvpText ? JSON.parse(pvpText) : {};
+      const [profileRes, pvpRes, rioRes] = await Promise.all([
+        fetch(`https://${region}.api.blizzard.com/profile/wow/character/${realmSlug}/${charName}?namespace=profile-${region}&locale=fr_FR&access_token=${token}`),
+        fetch(`https://${region}.api.blizzard.com/profile/wow/character/${realmSlug}/${charName}/pvp-summary?namespace=profile-${region}&locale=fr_FR&access_token=${token}`),
+        fetch(`https://raider.io/api/v1/characters/profile?region=${region}&realm=${realmSlug}&name=${encodeURIComponent(name)}&fields=gear`),
+      ]);
 
-      // Récupère le profil de base
-      const profileRes = await fetch(
-        `https://${region}.api.blizzard.com/profile/wow/character/${realmSlug}/${charName}` +
-        `?namespace=profile-${region}&locale=fr_FR&access_token=${token}`
-      );
-      const profile = await profileRes.json();
+      const profileText = await profileRes.text();
+      const pvpText     = await pvpRes.text();
+      const rioText     = await rioRes.text();
 
-      if (pvpData.code === 404 || profile.code === 404) {
+      const profile  = profileText ? JSON.parse(profileText) : {};
+      const pvpData  = pvpText ? JSON.parse(pvpText) : {};
+      const rioData  = rioText ? JSON.parse(rioText) : {};
+      if (!profile.name) {
         return interaction.editReply('❌ Personnage introuvable.');
       }
 
       const charClass = profile?.character_class?.name ?? 'Inconnu';
       const color     = CLASS_COLORS[charClass] ?? 0xFF0000;
+      const honorKills = pvpData?.honorable_kills ?? 0;
 
-      // Brackets PvP
-      const brackets  = pvpData.brackets ?? [];
-      const get2v2 = brackets.find ? brackets.find(b => b.bracket?.type === 'ARENA_2v2') : null;
-      const get3v3 = brackets.find ? brackets.find(b => b.bracket?.type === 'ARENA_3v3') : null;
-      const getRBG = brackets.find ? brackets.find(b => b.bracket?.type === 'BATTLEGROUND') : null;
+      const brackets = Array.isArray(pvpData?.brackets) ? pvpData.brackets : [];
+      const arena2v2 = brackets.find(b => b.bracket?.type === 'ARENA_2v2');
+      const arena3v3 = brackets.find(b => b.bracket?.type === 'ARENA_3v3');
+      const rbg      = brackets.find(b => b.bracket?.type === 'BATTLEGROUND');
 
       const formatBracket = (b) => {
-        if (!b) return 'N/A';
-        const rating = b.rating ?? 0;
+        if (!b || !b.rating) return 'Non classé';
         const wins   = b.season_match_statistics?.won ?? 0;
         const losses = b.season_match_statistics?.lost ?? 0;
-        return `${rating} CR (${wins}V / ${losses}D)`;
+        return `**${b.rating}** CR (${wins}V / ${losses}D)`;
       };
 
       const embed = new EmbedBuilder()
         .setTitle(`⚔️ Stats PvP — ${profile.name} (${realm})`)
-        .setURL(`https://worldofwarcraft.blizzard.com/fr-fr/character/${region}/${realmSlug}/${charName}`)
         .setColor(color)
-        .setThumbnail(profile.media?.assets?.[0]?.value ?? null)
+        .setThumbnail(rioData?.thumbnail_url ?? null)
         .addFields(
-          { name: '🧙 Classe / Spé', value: `${charClass} — ${profile?.active_spec?.name ?? 'N/A'}`, inline: true },
-          { name: '⚔️ Item Level',   value: `${profile?.average_item_level ?? 'N/A'}`, inline: true },
-          { name: '🏆 Hauts faits PvP', value: `${pvpData.honorable_kills ?? 0} kills honorables`, inline: true },
-          { name: '2v2', value: formatBracket(arena2v2), inline: true },
-          { name: '3v3', value: formatBracket(arena3v3), inline: true },
-          { name: 'RBG', value: formatBracket(rbg), inline: true },
+          { name: '🧙 Classe / Spé',      value: `${charClass} — ${profile?.active_spec?.name ?? 'N/A'}`, inline: true },
+          { name: '⚔️ Item Level',         value: `${rioData?.gear?.item_level_equipped ?? profile?.average_item_level ?? 'N/A'}`, inline: true },
+          { name: '💀 Kills honorables',   value: `${honorKills.toLocaleString('fr-FR')}`, inline: true },
+          { name: '🏆 2v2',               value: formatBracket(arena2v2), inline: true },
+          { name: '🏆 3v3',               value: formatBracket(arena3v3), inline: true },
+          { name: '⚔️ RBG',               value: formatBracket(rbg), inline: true },
         )
         .setFooter({ text: 'Données via Blizzard API' })
         .setTimestamp();
