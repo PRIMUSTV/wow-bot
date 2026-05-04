@@ -9,6 +9,7 @@ const pvpCommand    = require('./commands/pvp');
 const raidsCommand  = require('./commands/raids');
 const guildeCommand = require('./commands/guilde');
 const mythicCommand = require('./commands/mythic');
+const joueurCommand = require('./commands/joueur');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 client.commands = new Collection();
@@ -18,6 +19,7 @@ client.commands.set(pvpCommand.data.name, pvpCommand);
 client.commands.set(raidsCommand.data.name, raidsCommand);
 client.commands.set(guildeCommand.data.name, guildeCommand);
 client.commands.set(mythicCommand.data.name, mythicCommand);
+client.commands.set(joueurCommand.data.name, joueurCommand);
 client.suivis = {};
 
 async function verifierSuivis() {
@@ -67,6 +69,7 @@ client.once('clientReady', async () => {
       raidsCommand.data.toJSON(),
       guildeCommand.data.toJSON(),
       mythicCommand.data.toJSON(),
+      joueurCommand.data.toJSON(),
     ],
   });
   console.log('✅ Commandes slash enregistrées');

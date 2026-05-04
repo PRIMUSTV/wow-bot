@@ -78,9 +78,9 @@ module.exports = {
 
       // Brackets PvP
       const brackets  = pvpData.brackets ?? [];
-      const arena2v2  = brackets.find(b => b.bracket?.type === 'ARENA_2v2');
-      const arena3v3  = brackets.find(b => b.bracket?.type === 'ARENA_3v3');
-      const rbg       = brackets.find(b => b.bracket?.type === 'BATTLEGROUND');
+      const get2v2 = brackets.find ? brackets.find(b => b.bracket?.type === 'ARENA_2v2') : null;
+      const get3v3 = brackets.find ? brackets.find(b => b.bracket?.type === 'ARENA_3v3') : null;
+      const getRBG = brackets.find ? brackets.find(b => b.bracket?.type === 'BATTLEGROUND') : null;
 
       const formatBracket = (b) => {
         if (!b) return 'N/A';
