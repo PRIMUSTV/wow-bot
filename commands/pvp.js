@@ -50,7 +50,9 @@ module.exports = {
       const token = tokenData.access_token;
 
       const realmSlug = realm.toLowerCase().replace(/\s+/g, '-');
-      const charName  = name.toLowerCase();
+      const charName = name.toLowerCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '');
 
       // Récupère les stats PvP
       const pvpRes = await fetch(
