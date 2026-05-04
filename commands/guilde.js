@@ -64,9 +64,11 @@ module.exports = {
         ).then(async r => { const t = await r.text(); return t ? JSON.parse(t) : {}; }),
       ]);
 
-      if (guildeRes.code === 404) {
-        return interaction.editReply('❌ Guilde introuvable. Vérifie le nom et le royaume.');
-      }
+      console.log('Guilde data:', JSON.stringify(guildeRes).slice(0, 200));
+
+if (guildeRes.code === 404) {
+  return interaction.editReply('❌ Guilde introuvable. Vérifie le nom et le royaume.');
+}      }
 
       // Compte les membres par rang
       const membres = membresRes.members ?? membresRes.guild_roster?.members ?? [];
