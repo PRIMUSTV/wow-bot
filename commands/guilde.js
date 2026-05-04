@@ -42,7 +42,11 @@ module.exports = {
       const token = tokenData.access_token;
 
       const realmSlug = realm.toLowerCase().replace(/\s+/g, '-');
-      const guildeSlug = nom.toLowerCase().replace(/\s+/g, '-');
+      const guildeSlug = nom.toLowerCase()
+  .replace(/\s+/g, '-')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^a-z0-9-]/g, '');
 
       // Profil guilde
       const [guildeRes, membresRes, activiteRes] = await Promise.all([
