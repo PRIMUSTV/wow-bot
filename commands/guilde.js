@@ -25,7 +25,6 @@ module.exports = {
     try {
       const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
 
-      // Token Blizzard
       const credentials = Buffer.from(
         `${process.env.BLIZZARD_CLIENT_ID}:${process.env.BLIZZARD_CLIENT_SECRET}`
       ).toString('base64');
@@ -41,14 +40,13 @@ module.exports = {
       const tokenData = await tokenRes.json();
       const token = tokenData.access_token;
 
-      const realmSlug = realm.toLowerCase().replace(/\s+/g, '-');
+      const realmSlug  = realm.toLowerCase().replace(/\s+/g, '-');
       const guildeSlug = nom.toLowerCase()
-  .replace(/\s+/g, '-')
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .replace(/[^a-z0-9-]/g, '');
+        .replace(/\s+/g, '-')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9-]/g, '');
 
-      // Profil guilde
       const [guildeRes, membresRes, activiteRes] = await Promise.all([
         fetch(
           `https://${region}.api.blizzard.com/data/wow/guild/${realmSlug}/${guildeSlug}` +
@@ -66,23 +64,20 @@ module.exports = {
 
       console.log('Guilde data:', JSON.stringify(guildeRes).slice(0, 200));
 
-if (guildeRes.code === 404) {
-  return interaction.editReply('❌ Guilde introuvable. Vérifie le nom et le royaume.');
-}      }
+      if (guildeRes.code === 404 || !guildeRes.name) {
+        return interaction.editReply('❌ Guilde introuvable. Vérifie le nom et le royaume.');
+      }
 
-      // Compte les membres par rang
-      const membres = membresRes.members ?? membresRes.guild_roster?.members ?? [];
-      const nbMembres = membres.length;
-      const officiers = membres.filter(m => m.rank <= 2).length;
+      const membres    = membresRes.members ?? [];
+      const nbMembres  = membres.length;
+      const officiers  = membres.filter(m => m.rank <= 2).length;
 
-      // Top membres par niveau
       const topMembres = membres
         .sort((a, b) => b.character.level - a.character.level)
         .slice(0, 5)
         .map(m => `• **${m.character.name}** — Niv. ${m.character.level} (Rang ${m.rank})`)
         .join('\n');
 
-      // Faction
       const faction = guildeRes.faction?.type === 'HORDE' ? '🔴 Horde' : '🔵 Alliance';
 
       const embed = new EmbedBuilder()
