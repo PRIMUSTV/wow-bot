@@ -1,4 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { getCharacterProfile, getRaiderIOData } = require('../utils/wowApi');
 
 const CLASS_COLORS = {
   'Warrior': 0xC79C6E, 'Paladin': 0xF58CBA, 'Hunter': 0xABD473,
@@ -8,7 +9,6 @@ const CLASS_COLORS = {
   'Evoker': 0x33937F,
 };
 
-// Traduction EN → FR pour l'affichage
 const CLASS_FR = {
   'Warrior': 'Guerrier', 'Paladin': 'Paladin', 'Hunter': 'Chasseur',
   'Rogue': 'Voleur', 'Priest': 'Prêtre', 'Death Knight': 'Chevalier de la mort',
@@ -19,10 +19,10 @@ const CLASS_FR = {
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('pvp')
-    .setDescription('Affiche les stats PvP d\'un personnage WoW')
+    .setName('stats')
+    .setDescription('Affiche les stats générales d\'un personnage WoW')
     .addStringOption(opt =>
-      opt.setName('nom').setDescription('Nom du personnage').setRequired(true))
+      opt.setName('personnage').setDescription('Nom du personnage').setRequired(true))
     .addStringOption(opt =>
       opt.setName('royaume').setDescription('Nom du royaume (ex: Hyjal)').setRequired(true))
     .addStringOption(opt =>
@@ -35,82 +35,55 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply();
 
-    const name   = interaction.options.getString('nom');
+    const name   = interaction.options.getString('personnage');
     const realm  = interaction.options.getString('royaume');
     const region = interaction.options.getString('region') ?? 'eu';
 
     try {
-      const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
-
-      const credentials = Buffer.from(
-        `${process.env.BLIZZARD_CLIENT_ID}:${process.env.BLIZZARD_CLIENT_SECRET}`
-      ).toString('base64');
-
-      const tokenRes = await fetch('https://oauth.battle.net/token', {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${credentials}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: 'grant_type=client_credentials',
-      });
-      const tokenData = await tokenRes.json();
-      const token = tokenData.access_token;
-
-      const realmSlug = realm.toLowerCase()
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // retire les accents du royaume
-        .replace(/\s+/g, '-');
-      const charName = name.toLowerCase()
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // retire les accents du nom
-
-      // locale=en_US obligatoire pour que character_class.name matche CLASS_COLORS
-      const [profileRes, pvpRes, rioRes] = await Promise.all([
-        fetch(`https://${region}.api.blizzard.com/profile/wow/character/${realmSlug}/${charName}?namespace=profile-${region}&locale=en_US&access_token=${token}`),
-        fetch(`https://${region}.api.blizzard.com/profile/wow/character/${realmSlug}/${charName}/pvp-summary?namespace=profile-${region}&locale=en_US&access_token=${token}`),
-        fetch(`https://raider.io/api/v1/characters/profile?region=${region}&realm=${realmSlug}&name=${encodeURIComponent(name)}&fields=gear`),
+      const [blizzData, rioData] = await Promise.all([
+        getCharacterProfile(region, realm, name).catch(() => null),
+        getRaiderIOData(region, realm, name).catch(() => null),
       ]);
 
-      const profile = await profileRes.json().catch(() => ({}));
-      const pvpData = await pvpRes.json().catch(() => ({}));
-      const rioData = await rioRes.json().catch(() => ({}));
-
-      if (!profile.name) {
+      if (!blizzData?.profile && !rioData) {
         return interaction.editReply('❌ Personnage introuvable.');
       }
 
-      const charClass  = profile?.character_class?.name ?? 'Unknown';
-      const specName   = profile?.active_spec?.name ?? 'N/A';
-      const color      = CLASS_COLORS[charClass] ?? 0xFF0000;
-      const honorKills = pvpData?.honorable_kills ?? 0;
-
-      // Nom FR pour l'affichage, fallback sur l'anglais
+      const profile    = blizzData?.profile;
+      const charClass  = profile?.character_class?.name ?? rioData?.class ?? 'Unknown';
       const charClassFR = CLASS_FR[charClass] ?? charClass;
+      const spec       = profile?.active_spec?.name ?? rioData?.active_spec_name ?? 'N/A';
+      const color      = CLASS_COLORS[charClass] ?? 0x0099FF;
 
-      const brackets = Array.isArray(pvpData?.brackets) ? pvpData.brackets : [];
-      const arena2v2  = brackets.find(b => b.bracket?.type === 'ARENA_2v2');
-      const arena3v3  = brackets.find(b => b.bracket?.type === 'ARENA_3v3');
-      const rbg       = brackets.find(b => b.bracket?.type === 'BATTLEGROUND');
+      const ilvl    = rioData?.gear?.item_level_equipped ?? profile?.average_item_level ?? 0;
+      const mScore  = rioData?.mythic_plus_scores_by_season?.[0]?.scores?.all ?? 0;
 
-      const formatBracket = (b) => {
-        if (!b || !b.rating) return 'Non classé';
-        const wins   = b.season_match_statistics?.won  ?? 0;
-        const losses = b.season_match_statistics?.lost ?? 0;
-        return `**${b.rating}** CR (${wins}V / ${losses}D)`;
-      };
+      // Progression raid
+      const raidProg   = rioData?.raid_progression;
+      const latestRaid = raidProg ? Object.entries(raidProg)[0] : null;
+      const raidText   = latestRaid
+        ? `${latestRaid[1].normal_bosses_killed}N / ${latestRaid[1].heroic_bosses_killed}H / ${latestRaid[1].mythic_bosses_killed}M`
+        : 'N/A';
+
+      // Derniers M+
+      const recentRuns = rioData?.mythic_plus_recent_runs ?? [];
+      const runsText = recentRuns.length > 0
+        ? recentRuns.slice(0, 3).map(r => `+${r.mythic_level} ${r.dungeon} (${r.num_keystone_upgrades}⭐)`).join('\n')
+        : 'Aucun run récent';
 
       const embed = new EmbedBuilder()
-        .setTitle(`⚔️ Stats PvP — ${profile.name} (${realm})`)
+        .setTitle(`${profile?.name ?? rioData?.name ?? name} — ${realm}`)
+        .setURL(`https://raider.io/characters/${region}/${encodeURIComponent(realm.toLowerCase())}/${encodeURIComponent(name.toLowerCase())}`)
         .setColor(color)
         .setThumbnail(rioData?.thumbnail_url ?? null)
         .addFields(
-          { name: '🧙 Classe / Spé',    value: `${charClassFR} — ${specName}`, inline: true },
-          { name: '⚔️ Item Level',       value: `${rioData?.gear?.item_level_equipped ?? profile?.average_item_level ?? 'N/A'}`, inline: true },
-          { name: '💀 Kills honorables', value: `${honorKills.toLocaleString('fr-FR')}`, inline: true },
-          { name: '🏆 2v2',             value: formatBracket(arena2v2), inline: true },
-          { name: '🏆 3v3',             value: formatBracket(arena3v3), inline: true },
-          { name: '⚔️ RBG',             value: formatBracket(rbg),     inline: true },
+          { name: '🎮 Classe / Spé',     value: `${charClassFR} — ${spec}`, inline: true },
+          { name: '⚔️ Item Level',        value: `${ilvl}`, inline: true },
+          { name: '🏆 Score M+',          value: `${mScore}`, inline: true },
+          { name: '🐉 Progression Raid',  value: raidText, inline: false },
+          { name: '🔑 Derniers M+',       value: runsText, inline: false },
         )
-        .setFooter({ text: 'Données via Blizzard API' })
+        .setFooter({ text: `Données via Blizzard API & Raider.IO · ${region.toUpperCase()}` })
         .setTimestamp();
 
       await interaction.editReply({ embeds: [embed] });

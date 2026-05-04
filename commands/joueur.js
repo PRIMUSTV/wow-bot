@@ -58,13 +58,15 @@ module.exports = {
         getRaiderIOData(region, realm, name).catch(() => null),
       ]);
 
+      // Debug temporaire — à supprimer une fois que tout fonctionne
+      console.log('Blizz complet:', JSON.stringify(blizzData, null, 2));
       if (!blizzData?.profile && !rioData) {
         return interaction.editReply('❌ Personnage introuvable.');
       }
 
       const profile   = blizzData?.profile;
       const charClass = profile?.character_class?.name ?? rioData?.class ?? 'Inconnu';
-      const spec      = rioData?.spec ?? profile?.active_spec?.name ?? 'N/A';
+      const spec  = profile?.active_spec?.name ?? rioData?.active_spec_name ?? 'N/A';
       const color     = CLASS_COLORS[charClass] ?? 0x0099FF;
       const specEmoji = SPEC_EMOJI[spec] ?? '⚔️';
 
@@ -72,8 +74,7 @@ module.exports = {
       const mScore    = rioData?.mythic_plus_scores_by_season?.[0]?.scores?.all ?? 0;
       const guilde    = profile?.guild?.name ?? rioData?.guild?.name ?? 'Sans guilde';
       const faction   = profile?.faction?.type === 'HORDE' ? '🔴 Horde' : '🔵 Alliance';
-      const level     = profile?.level ?? rioData?.level ?? 'N/A';
-
+      const level = profile?.level ?? rioData?.character_level ?? 'N/A';
       // Progression raid
       const raidProg   = rioData?.raid_progression;
       const latestRaid = raidProg ? Object.entries(raidProg)[0] : null;

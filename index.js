@@ -13,13 +13,15 @@ const joueurCommand = require('./commands/joueur');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 client.commands = new Collection();
-client.commands.set(statsCommand.data.name, statsCommand);
-client.commands.set(suiviCommand.data.name, suiviCommand);
-client.commands.set(pvpCommand.data.name, pvpCommand);
-client.commands.set(raidsCommand.data.name, raidsCommand);
+
+client.commands.set(statsCommand.data.name,  statsCommand);
+client.commands.set(suiviCommand.data.name,  suiviCommand);
+client.commands.set(pvpCommand.data.name,    pvpCommand);
+client.commands.set(raidsCommand.data.name,  raidsCommand);
 client.commands.set(guildeCommand.data.name, guildeCommand);
 client.commands.set(mythicCommand.data.name, mythicCommand);
 client.commands.set(joueurCommand.data.name, joueurCommand);
+
 client.suivis = {};
 
 async function verifierSuivis() {
@@ -36,18 +38,16 @@ async function verifierSuivis() {
       if (newScore > suivi.lastScore) {
         const channel = await client.channels.fetch(suivi.channelId);
         const diff = (newScore - suivi.lastScore).toFixed(1);
-
         const embed = new EmbedBuilder()
           .setTitle(`🏆 Score M+ amélioré — ${suivi.nom}!`)
           .setColor(0x00FF99)
           .addFields(
-            { name: 'Ancien score', value: `${suivi.lastScore}`, inline: true },
-            { name: 'Nouveau score', value: `${newScore}`, inline: true },
-            { name: 'Progression', value: `+${diff} pts 🎉`, inline: true },
+            { name: 'Ancien score',  value: `${suivi.lastScore}`, inline: true },
+            { name: 'Nouveau score', value: `${newScore}`,        inline: true },
+            { name: 'Progression',   value: `+${diff} pts 🎉`,   inline: true },
           )
           .setURL(`https://raider.io/characters/${suivi.region}/${encodeURIComponent(suivi.realm.toLowerCase())}/${encodeURIComponent(suivi.nom.toLowerCase())}`)
           .setTimestamp();
-
         await channel.send({ embeds: [embed] });
         client.suivis[key].lastScore = newScore;
       }
@@ -61,17 +61,23 @@ client.once('clientReady', async () => {
   console.log(`✅ Bot connecté : ${client.user.tag}`);
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-  await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), {
-    body: [
-      statsCommand.data.toJSON(),
-      suiviCommand.data.toJSON(),
-      pvpCommand.data.toJSON(),
-      raidsCommand.data.toJSON(),
-      guildeCommand.data.toJSON(),
-      mythicCommand.data.toJSON(),
-      joueurCommand.data.toJSON(),
-    ],
-  });
+
+  const commands = [
+    statsCommand.data.toJSON(),
+    suiviCommand.data.toJSON(),
+    pvpCommand.data.toJSON(),
+    raidsCommand.data.toJSON(),
+    guildeCommand.data.toJSON(),
+    mythicCommand.data.toJSON(),
+    joueurCommand.data.toJSON(),
+  ];
+
+  // Dédoublonnage par nom au cas où
+  const unique = Object.values(
+    Object.fromEntries(commands.map(c => [c.name, c]))
+  );
+
+  await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: unique });
   console.log('✅ Commandes slash enregistrées');
 
   setInterval(verifierSuivis, 10 * 60 * 1000);
