@@ -25,75 +25,40 @@ module.exports = {
     try {
       const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
 
-      const credentials = Buffer.from(
-        `${process.env.BLIZZARD_CLIENT_ID}:${process.env.BLIZZARD_CLIENT_SECRET}`
-      ).toString('base64');
+      const realmSlug  = realm.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '-');
+      const guildeSlug = nom.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
-      const tokenRes = await fetch('https://oauth.battle.net/token', {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${credentials}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: 'grant_type=client_credentials',
-      });
-      const tokenData = await tokenRes.json();
-      const token = tokenData.access_token;
+      const url = `https://raider.io/api/v1/guilds/profile?region=${region}&realm=${realmSlug}&name=${encodeURIComponent(nom)}&fields=raid_progression,raid_rankings,members`;
+      const res = await fetch(url);
+      const data = await res.json();
 
-      const realmSlug  = realm.toLowerCase().replace(/\s+/g, '-');
-      const guildeSlug = nom.toLowerCase()
-        .replace(/\s+/g, '-')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9-]/g, '');
+      console.log('Guilde RIO:', JSON.stringify(data).slice(0, 300));
 
-      const [guildeRes, membresRes, activiteRes] = await Promise.all([
-        fetch(
-          `https://${region}.api.blizzard.com/data/wow/guild/${realmSlug}/${guildeSlug}` +
-          `?namespace=profile-${region}&locale=fr_FR&access_token=${token}&region=${region}`
-        ).then(async r => { const t = await r.text(); return t ? JSON.parse(t) : {}; }),
-        fetch(
-          `https://${region}.api.blizzard.com/data/wow/guild/${realmSlug}/${guildeSlug}/roster` +
-          `?namespace=profile-${region}&locale=fr_FR&access_token=${token}&region=${region}`
-        ).then(async r => { const t = await r.text(); return t ? JSON.parse(t) : {}; }),
-        fetch(
-          `https://${region}.api.blizzard.com/data/wow/guild/${realmSlug}/${guildeSlug}/achievements` +
-          `?namespace=profile-${region}&locale=fr_FR&access_token=${token}&region=${region}`
-        ).then(async r => { const t = await r.text(); return t ? JSON.parse(t) : {}; }),
-      ]);
-
-      console.log('Guilde data:', JSON.stringify(guildeRes).slice(0, 200));
-
-      if (guildeRes.code === 404 || !guildeRes.name) {
+      if (data.statusCode === 400 || data.statusCode === 404 || !data.name) {
         return interaction.editReply('❌ Guilde introuvable. Vérifie le nom et le royaume.');
       }
 
-      const membres    = membresRes.members ?? [];
-      const nbMembres  = membres.length;
-      const officiers  = membres.filter(m => m.rank <= 2).length;
+      const faction = data.faction === 'horde' ? '🔴 Horde' : '🔵 Alliance';
+      const color   = data.faction === 'horde' ? 0xFF0000 : 0x0000FF;
 
-      const topMembres = membres
-        .sort((a, b) => b.character.level - a.character.level)
-        .slice(0, 5)
-        .map(m => `• **${m.character.name}** — Niv. ${m.character.level} (Rang ${m.rank})`)
-        .join('\n');
+      const raidProg = data.raid_progression;
+      const latestRaid = raidProg ? Object.entries(raidProg)[0] : null;
+      const raidText = latestRaid
+        ? `${latestRaid[1].normal_bosses_killed}N / ${latestRaid[1].heroic_bosses_killed}H / ${latestRaid[1].mythic_bosses_killed}M`
+        : 'N/A';
 
-      const faction = guildeRes.faction?.type === 'HORDE' ? '🔴 Horde' : '🔵 Alliance';
+      const nbMembres = data.members?.length ?? 'N/A';
 
       const embed = new EmbedBuilder()
-        .setTitle(`⚔️ ${guildeRes.name} — ${realm}`)
-        .setColor(guildeRes.faction?.type === 'HORDE' ? 0xFF0000 : 0x0000FF)
+        .setTitle(`⚔️ ${data.name} — ${data.realm}`)
+        .setURL(`https://raider.io/guilds/${region}/${realmSlug}/${encodeURIComponent(nom)}`)
+        .setColor(color)
         .addFields(
-          { name: '🏰 Faction',      value: faction, inline: true },
-          { name: '👥 Membres',      value: `${nbMembres}`, inline: true },
-          { name: '⭐ Officiers',    value: `${officiers}`, inline: true },
-          { name: '🏆 Hauts faits',  value: `${activiteRes.total_quantity ?? 'N/A'}`, inline: true },
-          { name: '📅 Créée en',     value: guildeRes.created_timestamp
-            ? new Date(guildeRes.created_timestamp).toLocaleDateString('fr-FR')
-            : 'N/A', inline: true },
-          { name: '🎖️ Top membres', value: topMembres || 'N/A' },
+          { name: '🏰 Faction',         value: faction, inline: true },
+          { name: '👥 Membres',         value: `${nbMembres}`, inline: true },
+          { name: '🐉 Progression Raid', value: raidText, inline: true },
         )
-        .setFooter({ text: 'Données via Blizzard API' })
+        .setFooter({ text: 'Données via Raider.IO' })
         .setTimestamp();
 
       await interaction.editReply({ embeds: [embed] });
