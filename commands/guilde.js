@@ -69,7 +69,7 @@ module.exports = {
       }
 
       // Compte les membres par rang
-      const membres = membresRes.members ?? [];
+      const membres = membresRes.members ?? membresRes.guild_roster?.members ?? [];
       const nbMembres = membres.length;
       const officiers = membres.filter(m => m.rank <= 2).length;
 
