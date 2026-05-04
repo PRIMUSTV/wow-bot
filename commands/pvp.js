@@ -57,7 +57,8 @@ module.exports = {
         `https://${region}.api.blizzard.com/profile/wow/character/${realmSlug}/${charName}/pvp-summary` +
         `?namespace=profile-${region}&locale=fr_FR&access_token=${token}`
       );
-      const pvpData = await pvpRes.json();
+      const pvpText = await pvpRes.text();
+      const pvpData = pvpText ? JSON.parse(pvpText) : {};
 
       // Récupère le profil de base
       const profileRes = await fetch(

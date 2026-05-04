@@ -49,15 +49,15 @@ module.exports = {
         fetch(
           `https://${region}.api.blizzard.com/data/wow/guild/${realmSlug}/${guildeSlug}` +
           `?namespace=profile-${region}&locale=fr_FR&access_token=${token}`
-        ).then(r => r.json()),
+        ).then(async r => { const t = await r.text(); return t ? JSON.parse(t) : {}; }),
         fetch(
           `https://${region}.api.blizzard.com/data/wow/guild/${realmSlug}/${guildeSlug}/roster` +
           `?namespace=profile-${region}&locale=fr_FR&access_token=${token}`
-        ).then(r => r.json()),
+        ).then(async r => { const t = await r.text(); return t ? JSON.parse(t) : {}; }),
         fetch(
           `https://${region}.api.blizzard.com/data/wow/guild/${realmSlug}/${guildeSlug}/achievements` +
           `?namespace=profile-${region}&locale=fr_FR&access_token=${token}`
-        ).then(r => r.json()),
+        ).then(async r => { const t = await r.text(); return t ? JSON.parse(t) : {}; }),
       ]);
 
       if (guildeRes.code === 404) {
