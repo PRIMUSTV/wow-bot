@@ -1,13 +1,22 @@
-const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
+const fetch = (...args) =>
+  import('node-fetch').then(({ default: f }) => f(...args));
 
 let blizzardToken = null;
 let tokenExpiry = 0;
 
+/* =========================
+   TOKEN BLIZZARD
+========================= */
+
 async function getBlizzardToken() {
-  if (blizzardToken && Date.now() < tokenExpiry) return blizzardToken;
+  if (blizzardToken && Date.now() < tokenExpiry) {
+    return blizzardToken;
+  }
+
   const credentials = Buffer.from(
     `${process.env.BLIZZARD_CLIENT_ID}:${process.env.BLIZZARD_CLIENT_SECRET}`
   ).toString('base64');
+
   const res = await fetch('https://oauth.battle.net/token', {
     method: 'POST',
     headers: {
@@ -16,29 +25,78 @@ async function getBlizzardToken() {
     },
     body: 'grant_type=client_credentials',
   });
+
   const data = await res.json();
+
+  if (!res.ok) {
+    console.log('❌ Erreur token Blizzard:', data);
+    throw new Error('Impossible de récupérer le token Blizzard');
+  }
+
   blizzardToken = data.access_token;
   tokenExpiry = Date.now() + (data.expires_in - 60) * 1000;
+
   return blizzardToken;
 }
 
-// Transforme "Temple Noir" → "temple-noir", "Laïntime" → "laintime"
-function toSlug(str) {
+/* =========================
+   FORMAT ROYAUME API
+   "Temple Noir" → "temple-noir"
+========================= */
+
+function realmToSlug(str) {
   return str
+    .trim()
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, ''); // supprime tout caractère non standard restant
+    .replace(/[^a-z0-9-]/g, '');
 }
+
+/* =========================
+   FORMAT PERSONNAGE
+   GARDE LES ACCENTS
+========================= */
+
+function characterName(str) {
+  return str
+    .trim()
+    .toLowerCase()
+    .normalize('NFC');
+}
+
+/* =========================
+   FORMAT AFFICHAGE ROYAUME
+   "temple-noir" → "Temple Noir"
+========================= */
+
+function formatRealmName(realmSlug) {
+  return realmSlug
+    .split('-')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+/* =========================
+   PROFIL BLIZZARD
+========================= */
 
 async function getCharacterProfile(region, realm, name) {
   const token = await getBlizzardToken();
-  const realmSlug = toSlug(realm);
-  const charSlug  = toSlug(name);
 
-  const baseUrl = `https://${region}.api.blizzard.com/profile/wow/character/${realmSlug}/${charSlug}`;
-  const params  = `?namespace=profile-${region}&locale=fr_FR&access_token=${token}`;
+  const realmSlug = realmToSlug(realm);
+  const charName = characterName(name);
+
+  const baseUrl =
+    `https://${region}.api.blizzard.com/profile/wow/character/` +
+    `${encodeURIComponent(realmSlug)}/` +
+    `${encodeURIComponent(charName)}`;
+
+  const params =
+    `?namespace=profile-${region}` +
+    `&locale=fr_FR` +
+    `&access_token=${encodeURIComponent(token)}`;
 
   console.log('🔍 Blizzard URL:', baseUrl);
 
@@ -47,29 +105,55 @@ async function getCharacterProfile(region, realm, name) {
     fetch(baseUrl + '/equipment' + params),
   ]);
 
-  const profile   = await profileRes.json().catch(() => null);
+  const profile = await profileRes.json().catch(() => null);
   const equipment = await equipmentRes.json().catch(() => null);
 
-  // Log complet pour debug
   console.log('📦 Blizzard profile status:', profileRes.status);
-  console.log('📦 Blizzard profile réponse:', JSON.stringify(profile)?.slice(0, 300));
 
-  // Si erreur Blizzard, on retourne null proprement
-  if (profile?.code || profile?.type === 'BLIZZ_NOT_FOUND') {
-    console.log('❌ Blizzard erreur:', profile?.detail ?? 'Personnage introuvable');
-    return { profile: null, equipment: null };
+  console.log(
+    '📦 Blizzard profile réponse:',
+    JSON.stringify(profile)?.slice(0, 300)
+  );
+
+  if (!profileRes.ok || profile?.code || profile?.type === 'BLIZZ_NOT_FOUND') {
+    console.log(
+      '❌ Blizzard erreur:',
+      profile?.detail ?? 'Personnage introuvable'
+    );
+
+    return {
+      profile: null,
+      equipment: null,
+    };
   }
 
-  return { profile, equipment };
+  return {
+    profile,
+    equipment,
+  };
 }
 
-async function getRaiderIOData(region, realm, name) {
-  const realmSlug = toSlug(realm);
-  const nameSafe = toSlug(name).replace(/^\w/, c => c.toUpperCase());
+/* =========================
+   DONNÉES RAIDER.IO
+========================= */
 
-  const fields = 'mythic_plus_scores_by_season:current,mythic_plus_recent_runs,raid_progression,gear,guild';
-  const url = `https://raider.io/api/v1/characters/profile` +
-    `?region=${region}&realm=${encodeURIComponent(realmSlug)}&name=${encodeURIComponent(nameSafe)}&fields=${fields}`;
+async function getRaiderIOData(region, realm, name) {
+  const realmSlug = realmToSlug(realm);
+  const nameSafe = characterName(name);
+
+  const fields =
+    'mythic_plus_scores_by_season:current,' +
+    'mythic_plus_recent_runs,' +
+    'raid_progression,' +
+    'gear,' +
+    'guild';
+
+  const url =
+    `https://raider.io/api/v1/characters/profile` +
+    `?region=${encodeURIComponent(region)}` +
+    `&realm=${encodeURIComponent(realmSlug)}` +
+    `&name=${encodeURIComponent(nameSafe)}` +
+    `&fields=${encodeURIComponent(fields)}`;
 
   console.log('🔍 Raider.IO URL:', url);
 
@@ -77,8 +161,27 @@ async function getRaiderIOData(region, realm, name) {
 
   console.log('📦 Raider.IO status:', res.status);
 
-  if (!res.ok) throw new Error('Personnage introuvable sur Raider.IO');
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+
+    console.log(
+      '❌ Raider.IO réponse:',
+      text.slice(0, 300)
+    );
+
+    throw new Error('Personnage introuvable sur Raider.IO');
+  }
+
   return res.json();
 }
 
-module.exports = { getCharacterProfile, getRaiderIOData, getBlizzardToken };
+/* =========================
+   EXPORTS
+========================= */
+
+module.exports = {
+  getCharacterProfile,
+  getRaiderIOData,
+  getBlizzardToken,
+  formatRealmName,
+};
