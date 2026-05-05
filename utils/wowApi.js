@@ -65,7 +65,7 @@ async function getCharacterProfile(region, realm, name) {
 
 async function getRaiderIOData(region, realm, name) {
   const realmSlug = toSlug(realm);
-  const nameSafe  = toSlug(name);
+  const nameSafe = toSlug(name).replace(/^\w/, c => c.toUpperCase());
 
   const fields = 'mythic_plus_scores_by_season:current,mythic_plus_recent_runs,raid_progression,gear,guild';
   const url = `https://raider.io/api/v1/characters/profile` +
