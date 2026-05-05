@@ -23,6 +23,10 @@ const SPEC_EMOJI = {
   'Devastation': '🐉', 'Preservation': '🌿', 'Augmentation': '⚗️'
 };
 
+function normalizeString(str) {
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 function ilvlBar(ilvl) {
   const max = 700, min = 300;
   const pct = Math.min(Math.max((ilvl - min) / (max - min), 0), 1);
@@ -48,33 +52,39 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply();
 
-    const name   = interaction.options.getString('personnage');
-    const realm  = interaction.options.getString('royaume');
-    const region = interaction.options.getString('region') ?? 'eu';
+    const nameRaw  = interaction.options.getString('personnage');
+    const realmRaw = interaction.options.getString('royaume');
+    const region   = interaction.options.getString('region') ?? 'eu';
+
+    // Version sans accents pour Raider.IO
+    const nameSafe  = normalizeString(nameRaw);
+    const realmSafe = normalizeString(realmRaw);
 
     try {
       const [blizzData, rioData] = await Promise.all([
-        getCharacterProfile(region, realm, name).catch(() => null),
-        getRaiderIOData(region, realm, name).catch(() => null),
+        getCharacterProfile(region, realmRaw, nameRaw).catch(() => null),  // Blizzard → nom original
+        getRaiderIOData(region, realmSafe, nameSafe).catch(() => null),     // Raider.IO → nom normalisé
       ]);
 
       // Debug temporaire — à supprimer une fois que tout fonctionne
       console.log('Blizz complet:', JSON.stringify(blizzData, null, 2));
+
       if (!blizzData?.profile && !rioData) {
         return interaction.editReply('❌ Personnage introuvable.');
       }
 
       const profile   = blizzData?.profile;
       const charClass = profile?.character_class?.name ?? rioData?.class ?? 'Inconnu';
-      const spec  = profile?.active_spec?.name ?? rioData?.active_spec_name ?? 'N/A';
+      const spec      = profile?.active_spec?.name ?? rioData?.active_spec_name ?? 'N/A';
       const color     = CLASS_COLORS[charClass] ?? 0x0099FF;
       const specEmoji = SPEC_EMOJI[spec] ?? '⚔️';
 
-      const ilvl      = rioData?.gear?.item_level_equipped ?? profile?.average_item_level ?? 0;
-      const mScore    = rioData?.mythic_plus_scores_by_season?.[0]?.scores?.all ?? 0;
-      const guilde    = profile?.guild?.name ?? rioData?.guild?.name ?? 'Sans guilde';
-      const faction   = profile?.faction?.type === 'HORDE' ? '🔴 Horde' : '🔵 Alliance';
-      const level = profile?.level ?? rioData?.character_level ?? 'N/A';
+      const ilvl   = rioData?.gear?.item_level_equipped ?? profile?.average_item_level ?? 0;
+      const mScore = rioData?.mythic_plus_scores_by_season?.[0]?.scores?.all ?? 0;
+      const guilde  = profile?.guild?.name ?? rioData?.guild?.name ?? 'Sans guilde';
+      const faction = profile?.faction?.type === 'HORDE' ? '🔴 Horde' : '🔵 Alliance';
+      const level   = profile?.level ?? rioData?.character_level ?? 'N/A';
+
       // Progression raid
       const raidProg   = rioData?.raid_progression;
       const latestRaid = raidProg ? Object.entries(raidProg)[0] : null;
@@ -89,8 +99,8 @@ module.exports = {
       const scoreTank = scores.tank ?? 0;
 
       const embed = new EmbedBuilder()
-        .setTitle(`${specEmoji} ${profile?.name ?? name} — ${realm}`)
-        .setURL(`https://raider.io/characters/${region}/${encodeURIComponent(realm.toLowerCase())}/${encodeURIComponent(name.toLowerCase())}`)
+        .setTitle(`${specEmoji} ${profile?.name ?? nameRaw} — ${realmRaw}`)
+        .setURL(`https://raider.io/characters/${region}/${encodeURIComponent(realmSafe.toLowerCase())}/${encodeURIComponent(nameSafe.toLowerCase())}`)
         .setColor(color)
         .setThumbnail(rioData?.thumbnail_url ?? null)
         .addFields(
